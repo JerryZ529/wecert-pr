@@ -634,32 +634,47 @@ class Console2Regression(unittest.TestCase):
         self.assertIn('database unavailable', self.text('#sync-warning'))
         self.assertTrue(self.page.is_enabled('#refresh-inventory'))
 
-    def test_binding_lookup_failure_is_visible_and_does_not_allow_binding(self):
+    def test_binding_lookup_failure_marks_the_readonly_rows_stale(self):
         self.page.route('**/*', route_handler(self.page, FIXTURE))
         self.page.route('**/api/bindings', lambda route: route.fulfill(status=503, content_type='application/json', body='{"error":"cloud unavailable"}'))
         self.page.goto(DOCUMENT)
         self.page.wait_for_timeout(200)
-        self.assertIn('Binding lookup failed', self.text('#sync-warning'))
+        self.assertIn('cloud unavailable', self.text('#sync-warning'))
         self.page.click('[data-menu="shop-example"]')
-        self.page.click('[data-row-action="bind"]')
-        self.assertIn('unavailable binding inventory', self.text('#toast'))
+        self.assertEqual(self.page.locator('[data-row-action="bind"], [data-row-action="unbind"]').count(), 0)
 
-    def test_new_listener_checkbox_has_compact_geometry_and_inline_label(self):
+    def test_renew_editor_files_changed_domains_with_intent_header(self):
         self.load()
+        requests = []
+        def renew(route):
+            requests.append(route.request)
+            response = {'desiredDomains': ['shop.example.com'], 'issuedDomains': ['shop.example.com'],
+                        'boundDomains': ['shop.example.com'], 'canRenew': True}
+            if route.request.method == 'POST':
+                response = {'added': ['api.example.com'], 'removed': [], 'trigger': {'httpStatus': 202}}
+            route.fulfill(status=200, content_type='application/json', body=json.dumps(response))
+        self.page.route('**/renew/cert/shop-example', renew)
         self.page.click('[data-menu="shop-example"]')
-        self.page.click('[data-row-action="bind"]')
-        self.assertEqual(self.page.input_value('#bind-listener'), 'lbl-fixture01')
-        self.assertFalse(self.page.is_visible('.bind-new'))
-        self.page.select_option('#bind-listener', '')
-        self.assertTrue(self.page.is_visible('.bind-new'))
-        box = self.page.locator('[name="newSni"]').bounding_box()
-        label = self.page.locator('.checkbox-field > span').bounding_box()
-        self.assertLessEqual(box['width'], 18)
-        self.assertLessEqual(box['height'], 18)
-        self.assertGreater(label['x'], box['x'] + box['width'])
-        self.assertLess(abs(label['y'] - box['y']), 5)
-        self.page.uncheck('[name="newSni"]')
-        self.assertFalse(self.page.is_checked('[name="newSni"]'))
+        self.page.click('[data-row-action="renew"]')
+        self.page.wait_for_selector('#renew-add')
+        self.assertTrue(self.page.is_disabled('#renew-apply'))
+        self.page.fill('#renew-add', 'api.example.com')
+        self.page.click('#renew-add-btn')
+        self.assertTrue(self.page.is_enabled('#renew-apply'))
+        self.page.click('#renew-apply')
+        self.page.wait_for_timeout(150)
+        self.assertEqual(requests[-1].method, 'POST')
+        self.assertEqual(requests[-1].headers.get('x-wecert-intent'), 'renew')
+        self.assertEqual(json.loads(requests[-1].post_data), {'domains': ['shop.example.com', 'api.example.com'], 'confirm': 'shop-example'})
+
+    def test_renew_unavailable_has_no_enabled_submit(self):
+        self.load()
+        self.page.route('**/renew/cert/*', lambda route: route.fulfill(status=503, content_type='application/json', body='{"error":"agent unavailable"}'))
+        self.page.click('[data-menu="shop-example"]')
+        self.page.click('[data-row-action="renew"]')
+        self.page.wait_for_timeout(150)
+        self.assertIn('agent unavailable', self.text('#renew-modal'))
+        self.assertEqual(self.page.locator('#renew-apply').count(), 0)
 
     def test_dialog_focus_stays_inside_and_escape_restores_trigger(self):
         self.load()
@@ -731,14 +746,14 @@ class Console2Regression(unittest.TestCase):
         self.page.click('[data-menu="api-example"]')
         self.assertNotIn('Bind CLB listener', self.text('#row-menu'))
 
-    def test_binding_action_exists_only_in_certificate_row_menu(self):
+    def test_binding_details_have_no_cloud_mutation_actions(self):
         self.load()
         self.page.click('[data-action="view"][data-name="api-example"]')
         self.assertEqual(self.page.locator('#certificate-detail [data-row-action="bind"]').count(), 0)
         self.page.keyboard.press('Escape')
         self.page.click('[data-menu="api-example"]')
-        self.assertEqual(self.page.locator('#row-menu [data-row-action="bind"]').count(), 1)
-        self.assertIn('Bind CLB listener', self.text('#row-menu'))
+        self.assertEqual(self.page.locator('#row-menu [data-row-action="bind"], #row-menu [data-row-action="unbind"]').count(), 0)
+        self.assertIn('Renew (edit domains)', self.text('#row-menu'))
 
 
 if __name__ == "__main__":

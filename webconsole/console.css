@@ -25,11 +25,16 @@ p { margin: 4px 0; color: var(--muted); }
 .table-wrap { width: 100%; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 th, td { border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
-th:nth-child(1) { width: 34%; }
-th:nth-child(2) { width: 17%; }
-th:nth-child(3) { width: 29%; }
-th:nth-child(4) { width: 16%; }
-th:nth-child(5) { width: 4%; }
+/* Six columns: the certificate cell answers "which certificate is this" (name and cloud ID) and
+   the domain cell answers "what does it cover". They used to share one cell, which left the cloud
+   ID nowhere to go and printed one name out of four. Sized so three host names fit the domain
+   column at the narrowest window this page is used in. */
+th:nth-child(1) { width: 24%; }
+th:nth-child(2) { width: 20%; }
+th:nth-child(3) { width: 13%; }
+th:nth-child(4) { width: 22%; }
+th:nth-child(5) { width: 13%; }
+th:nth-child(6) { width: 8%; }
 .sync-warning { padding: 10px 16px; background: #fff6e6; color: #94600e; font-size: 12px; }
 .operation-log { padding: 0; list-style: none; }
 .operation-log li { padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
@@ -189,6 +194,37 @@ h1 { font-size: 24px; line-height: 1.3; letter-spacing: -.5px; font-weight: 650;
 .certificate-mark .ui-icon { width: 19px; height: 19px; }
 .certificate-domain { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
 .certificate-domain > span { margin-left: 5px; font-family: inherit; }
+/* Certificate cell: the cloud certificate ID. It is how a row here is matched against a row in the
+   Tencent Cloud SSL console -- the wecert name is not shown in that console at all. */
+.certificate-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; color: #65757e; }
+/* Domains cell: up to three names stacked, then a count. Stacked rather than joined by separators,
+   because three host names on one line is where a fixed-layout table starts cutting names in the
+   middle. */
+.domain-cell { display: grid; gap: 2px; }
+.domain-cell .domain-line { overflow: hidden; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11.5px; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.domain-cell .domain-more { color: #65757e; font-size: 11px; }
+/* Status cell: the binding line under the pill. The pill answers "is the endpoint serving this
+   certificate" (deployment plus probe); the binding state is a separate question, and this is where
+   it is answered without opening another column. */
+.binding-state { font-size: 11.5px; color: #65757e; }
+.binding-state.tone-ok { color: #2f7a5f; }
+.binding-state.tone-warn { color: #94600e; }
+/* Detail panel: one label per line in a binding row, the cloud name next to the load balancer ID,
+   and the evidence note saying when the enumeration behind the rows ran. */
+.binding-row em { margin-left: 6px; padding: 1px 6px; border-radius: 99px; background: var(--blue-soft); color: var(--blue); font-size: 10px; font-style: normal; }
+.section-note { margin: 8px 0 0; color: #65757e; font-size: 11.5px; line-height: 1.5; }
+/* Renew panel: the declared domain set as chips, and the reasons the renew agent may refuse an
+   edit (a name over the profile's cap, a name that a listener still references). */
+#renew-modal .modal-card { width: min(720px, calc(100vw - 40px)); }
+.renew-section { margin: 16px 0 0; }
+.renew-section h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; color: var(--ink); font-size: 12px; font-weight: 650; }
+.renew-domains { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.renew-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px 3px 9px; border: 1px solid var(--line); border-radius: 999px; background: #f7faf9; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11.5px; }
+.renew-chip.added { border-color: var(--blue); background: var(--blue-soft); }
+.renew-chip .renew-remove { padding: 0 2px; border: 0; background: none; color: #77888e; font-size: 13px; line-height: 1; cursor: pointer; }
+.renew-chip .renew-remove:hover { color: var(--red); }
+.renew-add-row { display: flex; align-items: center; gap: 8px; }
+.renew-add-row input { flex: 1; min-width: 0; }
 .account-cell { font-variant-numeric: tabular-nums; }
 .unbound { display: flex; gap: 16px; color: var(--muted); font-size: 12px; }
 .status-neutral { color: #6f7e82; background: #f0f3f3; }
@@ -885,8 +921,6 @@ body.detail-open { overflow: hidden; }
   color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer;
 }
 .checkbox-field .field-hint { display: block; margin-top: 3px; font-weight: 400; }
-.bind-new { padding: 12px 0 0; border-top: 1px solid var(--line); margin-top: 14px; }
-.bind-new summary { font-size: 12px; font-weight: 650; cursor: pointer; }
 #connection-status.stale { color: #966018; }
 #last-sync { display: block; padding: 0 16px 12px; color: var(--muted); font-size: 11px; }
 #certificate-action .modal-card { max-width: 540px; }

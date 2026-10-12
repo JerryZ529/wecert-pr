@@ -38,6 +38,9 @@ func (m *Manager) RefreshPendingBindings(ctx context.Context, force bool) (check
 	}
 
 	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return checked, confirmed, err
+		}
 		st, gerr := m.store.GetCert(name)
 		if gerr != nil || st == nil || st.DeployedCertID == "" {
 			continue
@@ -54,6 +57,9 @@ func (m *Manager) RefreshPendingBindings(ctx context.Context, force bool) (check
 			}
 			checked++
 			if _, _, berr := m.deployer.Bindings(ctx, st.DeployedCertID); berr != nil {
+				if err := ctx.Err(); err != nil {
+					return checked, confirmed, err
+				}
 				m.log.Warn("could not enumerate the bindings shown for this certificate",
 					"cert", name, "certId", st.DeployedCertID, "err", berr)
 			}
@@ -70,6 +76,9 @@ func (m *Manager) RefreshPendingBindings(ctx context.Context, force bool) (check
 		checked++
 
 		if cerr := m.confirmBinding(ctx, name, st); cerr != nil {
+			if err := ctx.Err(); err != nil {
+				return checked, confirmed, err
+			}
 			m.log.Warn("could not confirm the certificate binding", "cert", name, "certId", st.DeployedCertID, "err", cerr)
 			continue
 		}

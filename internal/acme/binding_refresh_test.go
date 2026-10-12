@@ -2,6 +2,7 @@ package acme
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -155,5 +156,16 @@ func TestRefreshPendingBindingsThrottlesUnlessForced(t *testing.T) {
 	}
 	if dep.calls != 3 {
 		t.Errorf("Bindings ran %d times, want the check to run again once the window passed", dep.calls)
+	}
+}
+
+func TestBindingRefreshCanceledContextReportsIncomplete(t *testing.T) {
+	dep := &fakeDeployer{bindings: 1}
+	m, _, _ := newConfirmHarness(t, dep, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	checked, confirmed, err := m.RefreshPendingBindings(ctx, true)
+	if !errors.Is(err, context.Canceled) || checked != 0 || len(confirmed) != 0 || dep.calls != 0 {
+		t.Fatalf("canceled refresh: checked=%d confirmed=%v err=%v calls=%d", checked, confirmed, err, dep.calls)
 	}
 }

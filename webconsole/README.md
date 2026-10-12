@@ -170,3 +170,21 @@ The binding UI exposes Tencent CLB only. Its sole management entry is the
 certificate row actions menu; certificate details show binding information
 without duplicating the action. Other deployment backends are not offered in
 the binding selector or rendered as cloud binding resources.
+
+### Domain editing through a renewal agent
+
+The `Renew (edit domains)` panel is an optional integration with a separate
+same-origin renewal agent. That agent is not included in this repository, and
+the standard daemon does not implement `/renew/cert/{name}`. Without an agent,
+the panel reports the failure and offers no submit action. The existing
+`Request renewal` action still reconciles the certificate through the daemon.
+
+The agent must authenticate and authorize every request. The console sends
+`X-Wecert-Intent: renew`, but that header alone is not authentication. GET returns
+the declared and issued domains, bound domains, renewal permissions and certificate
+metadata. POST accepts `{domains: [...], confirm: "certificate-name"}`; the agent
+must validate the declaration, preserve a backup and reconcile the certificate.
+Changing domains can request a new certificate and consume CA issuance quota.
+
+CLB listener binding and detachment are performed in the Tencent Cloud console;
+the management page displays the observed binding details and can refresh them.

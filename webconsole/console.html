@@ -1820,7 +1820,7 @@ async function applyRenew() {
     s.data.desiredDomains = draft.slice();
     recordOperation(s.name, `Filed renewal (+${(s.result.added || []).length} / −${(s.result.removed || []).length})`);
     toast(`${s.name}: change filed; the daemon is reissuing it now`);
-    setTimeout(() => { try { loadLive(); } catch { /* the sync warning explains stale data */ } }, 2500);
+    setTimeout(() => { loadLive().catch(() => { /* the sync warning explains stale data */ }); }, 2500);
   } catch (error) {
     s.warn = error.message;
   }
