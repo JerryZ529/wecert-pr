@@ -26,7 +26,18 @@ type bindingMemo struct {
 // bindingMemoTTL bounds how long a parse is reused without a fresh TaskDetail read.
 // Past it the next lookup misses and the caller re-queries, so a certificate whose
 // bindings were deleted out-of-band does not report a stale answer forever.
-const bindingMemoTTL = 10 * time.Minute
+//
+// It is a DISPLAY cache: the deployment decisions never read it. The per-certificate binding
+// check, the ten-minute refresh for a certificate waiting for its first bind, and the patrol all
+// enumerate through Bindings() regardless of this TTL.
+//
+// Ten minutes was shorter than every one of those intervals, so the rows an operator actually
+// looked at had always expired: the column fell back to the state store and printed "1 CLB
+// bindings - details not reported", with no load balancer, no region and no observation time --
+// the very question the inventory exists to answer. Keeping it just above the patrol interval
+// means the last enumeration stays visible, stamped with when it was observed, and a change made
+// in the Tencent Cloud console is at worst one patrol old.
+const bindingMemoTTL = 7 * time.Hour
 
 // bindingMemoMaxEntries is the hard ceiling on cached certificate IDs.
 //

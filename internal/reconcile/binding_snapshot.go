@@ -31,15 +31,17 @@ func (r *Reconciler) BindingSnapshot(certID string) (inventory.Bindings, bool) {
 	}
 	for _, row := range snap.Items {
 		out.Items = append(out.Items, inventory.BindingItem{
-			ResourceType:   row.ResourceType,
-			Region:         row.Region,
-			LoadBalancerID: row.LoadBalancerID,
-			ListenerID:     row.ListenerID,
-			Protocol:       row.Protocol,
-			Port:           row.Port,
-			SNIDomain:      row.SNIDomain,
-			Role:           row.Role,
-			Complete:       row.Complete,
+			ResourceType:     row.ResourceType,
+			Region:           row.Region,
+			LoadBalancerID:   row.LoadBalancerID,
+			LoadBalancerName: row.LoadBalancerName,
+			ListenerID:       row.ListenerID,
+			ListenerName:     row.ListenerName,
+			Protocol:         row.Protocol,
+			Port:             row.Port,
+			SNIDomain:        row.SNIDomain,
+			Role:             row.Role,
+			Complete:         row.Complete,
 		})
 	}
 	return out, true

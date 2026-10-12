@@ -61,9 +61,9 @@ func TestRefreshPendingBindingsLeavesAnUnboundCertificatePending(t *testing.T) {
 	}
 }
 
-// Only the certificates waiting for their first bind are worth an enumeration: a confirmed one has
-// its answer, and one that was never uploaded has no cloud certificate to ask about.
-func TestRefreshPendingBindingsOnlyLooksAtPendingCertificates(t *testing.T) {
+// The timer's scope: a confirmed certificate has its answer already, and one that was never uploaded
+// has no cloud certificate to ask about, so neither is worth an enumeration on the interval.
+func TestRefreshPendingBindingsSkipsConfirmedAndUnuploadedCertificates(t *testing.T) {
 	dep := &fakeDeployer{bindings: 3}
 	m, store, _ := newConfirmHarness(t, dep, func(st *state.CertState, _ *config.Certificate) {
 		st.DeployConfirmed = true
@@ -75,7 +75,7 @@ func TestRefreshPendingBindingsOnlyLooksAtPendingCertificates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checked, confirmed, err := m.RefreshPendingBindings(context.Background(), true)
+	checked, confirmed, err := m.RefreshPendingBindings(context.Background(), false)
 	if err != nil {
 		t.Fatalf("refresh should not fail: %v", err)
 	}
@@ -84,6 +84,30 @@ func TestRefreshPendingBindingsOnlyLooksAtPendingCertificates(t *testing.T) {
 	}
 	if dep.calls != 0 {
 		t.Errorf("Bindings ran %d times, want none: neither certificate is waiting for its first bind", dep.calls)
+	}
+}
+
+// An operator's refresh re-reads the rows the page cannot render: a confirmed certificate whose
+// enumeration has aged out shows "details not reported" until someone asks again, and this is that
+// ask. It must not report the certificate as newly confirmed -- that answer did not change.
+func TestRefreshPendingBindingsRefreshesTheRowsThePageCannotShow(t *testing.T) {
+	dep := &fakeDeployer{bindings: 2}
+	m, _, _ := newConfirmHarness(t, dep, func(st *state.CertState, _ *config.Certificate) {
+		st.DeployConfirmed = true
+	})
+
+	checked, confirmed, err := m.RefreshPendingBindings(context.Background(), true)
+	if err != nil {
+		t.Fatalf("refresh should not fail: %v", err)
+	}
+	if checked != 1 {
+		t.Errorf("checked=%d, want the confirmed certificate re-enumerated on demand", checked)
+	}
+	if len(confirmed) != 0 {
+		t.Errorf("confirmed=%v, want no new confirmation: the flag was already set", confirmed)
+	}
+	if dep.calls != 1 {
+		t.Errorf("Bindings ran %d times, want one enumeration to refill the rows", dep.calls)
 	}
 }
 

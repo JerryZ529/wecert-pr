@@ -1,24 +1,33 @@
 package acme
 
-import "context"
+import (
+	"context"
 
-// RefreshPendingBindings re-asks the cloud whether every uploaded-but-unconfirmed certificate is
-// bound yet, and records what it observed in the state store.
+	"github.com/susunola/wecert/internal/deploy"
+)
+
+// RefreshPendingBindings re-asks the cloud about the certificates whose binding answer this process
+// does not currently have, and records what it observed.
+//
+// Two kinds of candidate, and the difference is what force is for:
+//
+//   - a certificate waiting for its first bind: until the binding is noticed, the inventory says
+//     "bind needed" for a certificate that is serving traffic, and the deployed metric reports
+//     false. The daemon's ten-minute timer asks about these, and the throttle paces it.
+//   - a certificate that is confirmed but whose binding rows are no longer cached: the page can then
+//     show no load balancer, no name and no region, and "details not reported" is all an operator
+//     sees. Only an explicit refresh asks about these -- the answer changes when someone edits the
+//     load balancer in the Tencent Cloud console, so re-enumerating rows that are already displayed
+//     would spend a cloud call per click for no visible change.
 //
 // Why this exists next to confirmBindingIfDue, which the pass already calls: the pass runs on the
-// reconciliation interval (an hour by default), while the event that changes this answer is a
-// person binding the certificate in the Tencent Cloud console minutes after it was uploaded. Until
-// the answer lands, the inventory page says "bind needed" for a certificate that is serving
-// traffic, and the metrics report the deployment as unconfirmed. So the daemon calls this on its
-// own ten-minute timer, and the console's Refresh button calls it with force -- an operator who
-// has just done something in the cloud should not be told to wait for the next tick.
+// reconciliation interval (an hour by default), while the event that changes these answers is a
+// person working in the Tencent Cloud console. A page re-read seconds later must not report the
+// state from before their change.
 //
 // Read-only against the cloud: it enumerates bindings and writes what it found to the state store.
 // It never binds, rebinds or deletes anything, and a certificate whose enumeration says "nothing
 // bound" simply stays unconfirmed.
-//
-// force skips the throttle window only. Both callers record the attempt either way, so a forced
-// check pushes the next automatic one out by the window instead of doubling it.
 //
 // One certificate's failure is logged and does not stop the others: the caller is a background
 // timer or a page load, and one unreachable region must not silence the rest of the account.
@@ -30,17 +39,30 @@ func (m *Manager) RefreshPendingBindings(ctx context.Context, force bool) (check
 
 	for _, name := range names {
 		st, gerr := m.store.GetCert(name)
-		if gerr != nil || st == nil {
+		if gerr != nil || st == nil || st.DeployedCertID == "" {
 			continue
 		}
-		// The same gate confirmBindingIfDue applies: only a certificate that was uploaded through
-		// wecert and not yet confirmed as bound is worth asking about. DeployedCertID is set by the
-		// upload, which only happens when the certificate's deploy is enabled, so the running
-		// configuration is not needed here to tell "waiting for its first bind" from "nothing to
-		// confirm".
-		if st.DeployedCertID == "" || st.DeployConfirmed {
+
+		if st.DeployConfirmed {
+			// Refresh the rows the page renders, not the deployment flag: this certificate is
+			// already confirmed, so there is nothing to confirm and no state to write.
+			if !force {
+				continue
+			}
+			if _, _, cached := deploy.LookupCachedBindings(st.DeployedCertID); cached {
+				continue
+			}
+			checked++
+			if _, _, berr := m.deployer.Bindings(ctx, st.DeployedCertID); berr != nil {
+				m.log.Warn("could not enumerate the bindings shown for this certificate",
+					"cert", name, "certId", st.DeployedCertID, "err", berr)
+			}
 			continue
 		}
+
+		// Waiting for the first bind. DeployedCertID is set by the upload, which only happens when
+		// the certificate's deploy is enabled, so the running configuration is not needed here to
+		// tell "waiting for its first bind" from "nothing to confirm".
 		if !force && !m.bindingCheckReady(name) {
 			continue
 		}

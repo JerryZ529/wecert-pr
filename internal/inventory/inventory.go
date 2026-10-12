@@ -215,15 +215,20 @@ type Bindings struct {
 }
 
 type BindingItem struct {
-	ResourceType   string `json:"resourceType"`
-	Region         string `json:"region,omitempty"`
-	LoadBalancerID string `json:"loadBalancerId,omitempty"`
-	ListenerID     string `json:"listenerId,omitempty"`
-	Protocol       string `json:"protocol,omitempty"`
-	Port           int    `json:"port,omitempty"`
-	SNIDomain      string `json:"sniDomain,omitempty"`
-	Role           string `json:"role,omitempty"`
-	Complete       bool   `json:"complete"`
+	ResourceType string `json:"resourceType"`
+	Region       string `json:"region,omitempty"`
+	// LoadBalancerName and ListenerName are the cloud-side labels for the two IDs below. The
+	// page shows ID and name together because an operator moves between this inventory and the
+	// Tencent Cloud console, and only one of the two is recognisable at a glance.
+	LoadBalancerID   string `json:"loadBalancerId,omitempty"`
+	LoadBalancerName string `json:"loadBalancerName,omitempty"`
+	ListenerID       string `json:"listenerId,omitempty"`
+	ListenerName     string `json:"listenerName,omitempty"`
+	Protocol         string `json:"protocol,omitempty"`
+	Port             int    `json:"port,omitempty"`
+	SNIDomain        string `json:"sniDomain,omitempty"`
+	Role             string `json:"role,omitempty"`
+	Complete         bool   `json:"complete"`
 }
 
 type ProbeView struct {

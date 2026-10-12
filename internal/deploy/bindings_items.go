@@ -12,12 +12,21 @@ type BindingRow struct {
 	ResourceType   string
 	Region         string
 	LoadBalancerID string
-	ListenerID     string
-	Protocol       string
-	Port           int
-	SNIDomain      string
-	Role           string
-	Complete       bool
+	// LoadBalancerName and ListenerName are the labels the Tencent Cloud console shows for the
+	// same two IDs. The SSL task detail carries them, so a row here can be matched against that
+	// console by name as well as by ID -- which is how an operator finds the listener they are
+	// about to change when the account holds several load balancers.
+	//
+	// Empty when the service did not report them: the console renders the ID alone rather than
+	// inventing a name.
+	LoadBalancerName string
+	ListenerID       string
+	ListenerName     string
+	Protocol         string
+	Port             int
+	SNIDomain        string
+	Role             string
+	Complete         bool
 }
 
 // BindingSnapshot is what inventory consumes. Freshness is the caller's to set.
@@ -83,12 +92,14 @@ func ParseCLBBindingItems(resp *ssl.DescribeCertificateBindResourceTaskDetailRes
 			}
 			listed++
 			lb := deref(inst.LoadBalancerId)
+			lbName := deref(inst.LoadBalancerName)
 			if len(inst.Listeners) == 0 {
 				out.Items = append(out.Items, BindingRow{
-					ResourceType:   "clb",
-					Region:         regName,
-					LoadBalancerID: lb,
-					Complete:       true,
+					ResourceType:     "clb",
+					Region:           regName,
+					LoadBalancerID:   lb,
+					LoadBalancerName: lbName,
+					Complete:         true,
 				})
 				continue
 			}
@@ -97,7 +108,7 @@ func ParseCLBBindingItems(resp *ssl.DescribeCertificateBindResourceTaskDetailRes
 					complete = false
 					continue
 				}
-				rows := rowsForListener(regName, lb, lis, certID)
+				rows := rowsForListener(regName, lb, lbName, lis, certID)
 				out.Items = append(out.Items, rows...)
 			}
 		}
@@ -110,15 +121,17 @@ func ParseCLBBindingItems(resp *ssl.DescribeCertificateBindResourceTaskDetailRes
 	return out
 }
 
-func rowsForListener(region, lb string, lis *ssl.ClbListener, certID string) []BindingRow {
+func rowsForListener(region, lb, lbName string, lis *ssl.ClbListener, certID string) []BindingRow {
 	base := BindingRow{
-		ResourceType:   "clb",
-		Region:         region,
-		LoadBalancerID: lb,
-		ListenerID:     deref(lis.ListenerId),
-		Protocol:       deref(lis.Protocol),
-		Complete:       true,
-		Role:           roleOf(lis.Certificate, certID),
+		ResourceType:     "clb",
+		Region:           region,
+		LoadBalancerID:   lb,
+		LoadBalancerName: lbName,
+		ListenerID:       deref(lis.ListenerId),
+		ListenerName:     deref(lis.ListenerName),
+		Protocol:         deref(lis.Protocol),
+		Complete:         true,
+		Role:             roleOf(lis.Certificate, certID),
 	}
 	if len(lis.Rules) == 0 {
 		return []BindingRow{base}

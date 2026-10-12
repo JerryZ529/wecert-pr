@@ -16,8 +16,10 @@ func TestParseCLBBindingItemsNamesTheListener(t *testing.T) {
 				"TotalCount": 1,
 				"InstanceList": [{
 					"LoadBalancerId": "lb-aaaa",
+					"LoadBalancerName": "jerry",
 					"Listeners": [{
 						"ListenerId": "lbl-bbbb",
+						"ListenerName": "test",
 						"Protocol": "HTTPS",
 						"Certificate": {"CertId": "cYk1"},
 						"Rules": [{"Domain": "www.example.com", "Certificate": {"CertId": "cYk1"}}]
@@ -32,6 +34,35 @@ func TestParseCLBBindingItemsNamesTheListener(t *testing.T) {
 	}
 	row := snap.Items[0]
 	if row.LoadBalancerID != "lb-aaaa" || row.ListenerID != "lbl-bbbb" || row.SNIDomain != "www.example.com" || row.Role != "primary" {
+		t.Fatalf("%+v", row)
+	}
+	// The names travel with the IDs so the page can be matched against the Tencent Cloud console
+	// line by line; without them an operator holding "jerry" in one console has to translate.
+	if row.LoadBalancerName != "jerry" || row.ListenerName != "test" {
+		t.Fatalf("cloud-side names lost: %+v", row)
+	}
+}
+
+// A certificate bound to a load balancer whose listeners the service did not report still gets a
+// row, and that row still carries the load balancer's identity: "which load balancer" is the
+// whole content of such a row.
+func TestParseCLBBindingItemsKeepsTheLoadBalancerNameWithoutListeners(t *testing.T) {
+	resp := decodeDetail(t, `{
+		"Response": {
+			"Status": 1,
+			"CLB": [{
+				"Region": "ap-singapore",
+				"TotalCount": 1,
+				"InstanceList": [{"LoadBalancerId": "lb-hsj1v9eq", "LoadBalancerName": "jerry"}]
+			}]
+		}
+	}`)
+	snap := ParseCLBBindingItems(resp, "cYk1")
+	if !snap.Complete || snap.Count != 1 || len(snap.Items) != 1 {
+		t.Fatalf("%+v", snap)
+	}
+	row := snap.Items[0]
+	if row.LoadBalancerID != "lb-hsj1v9eq" || row.LoadBalancerName != "jerry" || row.Region != "ap-singapore" {
 		t.Fatalf("%+v", row)
 	}
 }
