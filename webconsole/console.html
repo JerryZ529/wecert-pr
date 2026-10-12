@@ -918,8 +918,6 @@ body.detail-open { overflow: hidden; }
   color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer;
 }
 .checkbox-field .field-hint { display: block; margin-top: 3px; font-weight: 400; }
-.bind-new { padding: 12px 0 0; border-top: 1px solid var(--line); margin-top: 14px; }
-.bind-new summary { font-size: 12px; font-weight: 650; cursor: pointer; }
 #connection-status.stale { color: #966018; }
 #last-sync { display: block; padding: 0 16px 12px; color: var(--muted); font-size: 11px; }
 #certificate-action .modal-card { max-width: 540px; }
@@ -1125,8 +1123,8 @@ function icon(name) {
 
 const state = {
   base: '', creating: false, live: false, sessionOK: false, canRead: false, canAdmin: false,
-  deployment: null, deploymentError: "", lastSynced: null, syncing: false, syncError: '', bindingsUnavailable: false,
-  accounts: [], certificates: [], clbs: [], uin: 'all', status: 'all',
+  deployment: null, deploymentError: "", lastSynced: null, syncing: false, syncError: '',
+  accounts: [], certificates: [], uin: 'all', status: 'all',
   binding: 'all', cloud: 'all',
   sort: 'expiry', search: '', selected: '', detailOpen: false, collapsed: new Set()
 };
@@ -1553,7 +1551,7 @@ function renderDetail() {
   const content = `<div class="validity-card ${overdue ? 'overdue' : soon ? 'due-soon' : ''}">${icon(overdue ? 'alert' : 'clock')}<div><span>Certificate validity</span><strong>${validityLabel(cert)}</strong><p>${overdue ? 'Renew this certificate and verify its deployed bindings.' : soon ? 'Review renewal before the certificate expires.' : cert.notAfter ? `Valid until ${escapeHTML(expiry(cert))}` : 'Validity will appear after issuance.'}</p></div></div>
     <section class="block"><h3>${icon('certificate')}Certificate information</h3><dl class="kv"><dt>UIN</dt><dd>${cert.uin ? copyButton(cert.uin) : '—'}</dd>${cert.deployedCertId ? `<dt>Certificate ID</dt><dd>${copyButton(cert.deployedCertId)}</dd>` : ''}<dt>Lifecycle</dt><dd>${info.lifecycle}</dd><dt>Expires on</dt><dd>${escapeHTML(expiry(cert))}</dd></dl></section>
     <section class="block"><h3>${icon('globe')}Domains <span class="section-count">${cert.domains?.length || 0}</span></h3><div class="resource-list">${domainRows(cert)}</div></section>
-    <section class="block" id="detail-bindings"><h3>${icon('link')}CLB bindings <span class="section-count">${clbBindingCount(cert)}</span></h3><div class="resource-list">${(cert.deploy?.target || state.deployment?.target || DEFAULT_TARGET) === 'tencent' ? bindingRows(cert) : '<p class="empty-detail">No supported CLB deployment.</p>'}</div><p class="section-note">${escapeHTML(bindingsEvidence(cert))}</p>${cert.status === 'waiting_manual_bind' ? '<p class="security-note">Binding is required. Use the certificate actions menu to bind a CLB listener.</p>' : ''}</section>`;
+    <section class="block" id="detail-bindings"><h3>${icon('link')}CLB bindings <span class="section-count">${clbBindingCount(cert)}</span></h3><div class="resource-list">${(cert.deploy?.target || state.deployment?.target || DEFAULT_TARGET) === 'tencent' ? bindingRows(cert) : '<p class="empty-detail">No supported CLB deployment.</p>'}</div><p class="section-note">${escapeHTML(bindingsEvidence(cert))}</p>${cert.status === 'waiting_manual_bind' ? '<p class="security-note">Binding is required: attach this certificate to a CLB listener in the Tencent Cloud console. This page notices it within ten minutes and says so here, or press Refresh.</p>' : ''}</section>`;
   $('#certificate-detail').innerHTML = `<div class="detail-head"><div><span class="detail-overline">Certificate details</span><h2>${escapeHTML(cert.name)}</h2></div><div class="detail-head-actions"><span class="badge ${info.tone}">${info.label}</span><button class="icon-close" data-close-detail aria-label="Close certificate details">${icon('close')}</button></div></div>
     <div class="detail-content">${content}</div>`;
   $('#certificate-detail .detail-content').insertAdjacentHTML('beforeend', `<section class="block"><h3>Issuance & diagnostics</h3><dl class="kv"><dt>Issuer</dt><dd>${escapeHTML(cert.issuer || 'Not reported')}</dd><dt>Valid from</dt><dd>${escapeHTML(cert.notBefore || 'Not reported')}</dd><dt>Issued at</dt><dd>${escapeHTML(cert.issuedAt || 'Not reported')}</dd><dt>Key type</dt><dd>${escapeHTML(cert.keyType || 'Not reported')}</dd><dt>Next attempt</dt><dd>${escapeHTML(cert.nextAttemptAt || 'Not reported')}</dd><dt>Last error</dt><dd>${escapeHTML(cert.lastError || cert.error || 'None reported')}</dd></dl></section><section class="block"><h3>Session activity</h3><p>Local to this page session; not a server audit log.</p><ul class="operation-log">${operationLog.filter(item => item.name === cert.name).map(item => `<li><span class="sub">${escapeHTML(item.time)}</span>${escapeHTML(item.message)}</li>`).join('') || '<li>No operations in this session.</li>'}</ul></section>`);
@@ -1602,16 +1600,17 @@ async function loadLive() {
   renderConnection();
   try {
     let bindingError = '';
-    const [inventory, accounts, bindings, deployment] = await Promise.all([
+    const [inventory, accounts, , deployment] = await Promise.all([
       request('GET', '/api/inventory'), request('GET', '/api/accounts'),
+      // Still fetched although nothing renders the list, now that binding and detaching a listener
+      // are Tencent Cloud console operations: a failure here is what tells the page its binding
+      // rows may be stale, and that warning is the reason the request stays.
       request('GET', '/api/bindings').catch(error => { bindingError = error.message; return null; }),
       request('GET', '/api/deployment').catch(error => ({unavailable: error.message}))
     ]);
     if (version !== syncVersion) return;
     state.deployment = deployment?.unavailable ? null : deployment;
     state.deploymentError = deployment?.unavailable || "";
-    state.bindingsUnavailable = Boolean(bindingError);
-    if (bindings) state.clbs = bindings.bindings || bindings.clbs || [];
     state.lastSynced = new Date();
     state.syncError = bindingError ? `Binding lookup failed: ${bindingError}` : '';
     setInventory(inventory.certificates || [], accounts.accounts || [], true);
@@ -1665,110 +1664,30 @@ function closeDetail() {
   }
 }
 
-function collectCLBs() {
-  // The daemon enumerates the account's load balancers (GET /api/bindings).
-  // Fall back to what the binding rows show, then -- only in preview -- to a
-  // sample, so the create-listener path can be exercised offline.
-  const byLb = new Map();
-  for (const b of state.clbs || []) {
-    if (!b || !b.id) continue;
-    byLb.set(b.id, {
-      id: b.id,
-      region: b.region || 'ap-guangzhou',
-      name: b.name || '',
-      listeners: (b.listeners || []).map((l) => ({
-        id: l.id, proto: l.proto || 'HTTPS', port: l.port || '', sni: l.sni ? (l.sniDomain || l.sni || '') : ''
-      }))
-    });
-  }
-  for (const cert of state.certificates) {
-    for (const item of (cert.bindings?.items || []).filter(isCLBBinding)) {
-      const id = item.loadBalancerId || 'unknown';
-      if (!byLb.has(id)) byLb.set(id, { id, region: item.region || 'ap-guangzhou', listeners: [] });
-      if (item.listenerId && !byLb.get(id).listeners.some((l) => l.id === item.listenerId)) {
-        byLb.get(id).listeners.push({ id: item.listenerId, proto: item.protocol || 'HTTPS', port: item.port || '', sni: item.sniDomain || item.sni || '' });
-      }
-    }
-  }
-  return [...byLb.values()];
-}
-
-function openCertificateAction(name, action) {
+// Deleting the certificate's wecert record: a local action with a cloud consequence, spelled out in
+// the dialog. It does not detach listeners and does not revoke the certificate.
+//
+// Binding and detaching a listener used to be offered here as well. Both are Tencent Cloud console
+// operations, and this page reports their result (see bindingState) instead of performing them.
+function openCertificateDeletion(name) {
   const cert = state.certificates.find(item => item.name === name);
   if (!cert) return;
   if (!state.canAdmin) { toast('Connect with an admin token to manage certificates.'); return; }
-  if (action === 'bind' && !state.deployment) { toast('Deployment settings are unavailable. Refresh to retry.'); return; }
-  if (action === 'bind' && (state.deployment.target !== 'tencent' || cert.deploy?.target === 'nginx')) { toast('CLB binding is available only for Tencent deployment.'); return; }
-  if (action === 'bind' && state.bindingsUnavailable) { toast('Refresh the unavailable binding inventory before binding.'); return; }
   let modal = document.getElementById('certificate-action');
   if (!modal) { modal = document.createElement('div'); modal.id = 'certificate-action'; modal.className = 'modal'; document.body.append(modal); }
-  const deletion = action === 'delete';
-  const unbind = action === 'unbind';
-  const title = deletion ? 'Delete certificate' : unbind ? 'Detach bindings' : 'Bind CLB listener';
-  const clbs = collectCLBs();
-  const lbOptions = clbs.map((b) => `<option value="${escapeHTML(b.id)}" data-region="${escapeHTML(b.region)}">${escapeHTML(b.id)} · ${escapeHTML(b.region)}</option>`).join('');
-  const listenerOptions = (clbs[0]?.listeners || []).map((l) =>
-    `<option value="${escapeHTML(l.id)}">${escapeHTML(l.id)} · ${escapeHTML(l.proto)}/${escapeHTML(l.port || '?')}${l.sni ? ' · ' + escapeHTML(l.sni) : ''}</option>`
-  ).join('');
 
   modal.innerHTML = `<form class="modal-card">
-    <header class="modal-head"><h2>${title}</h2></header>
+    <header class="modal-head"><h2>Delete certificate</h2></header>
     <p>${escapeHTML(name)} · UIN ${escapeHTML(cert.uin || 'Unknown')}</p>
-    <p class="security-note">${
-      deletion
-        ? `This removes WeCert management and local certificate state. It does not detach cloud listeners or revoke the certificate. ${cert.bindings?.count || 0} bindings are reported; verify their impact before continuing.`
-        : unbind
-          ? 'Leave the certificate in inventory and drop its binding bookkeeping. Detach listeners in the cloud console if you need traffic to stop using it.'
-          : 'This attaches the certificate to a CLB listener. The first bind may need a one-time confirmation in the Tencent Cloud console; later renewals switch automatically.'
-    }</p>
-    ${
-      deletion
-        ? `<label class="field">Type the certificate name to confirm<input name="confirmation" required autocomplete="off"></label>`
-        : unbind
-          ? ''
-          : `${clbs.length
-              ? `<label class="field">Load balancer<select name="loadBalancerId" id="bind-lb">${lbOptions}</select></label>`
-              : `<label class="field">Load balancer ID <span class="field-hint">(no known load balancer — paste the id)</span><input name="loadBalancerId" class="mono" required placeholder="lb-…" autocomplete="off"></label>
-                 <label class="field">Region<input name="region" class="mono" placeholder="ap-guangzhou" autocomplete="off"></label>`}
-             <label class="field">Listener<select name="listenerId" id="bind-listener"><option value="">— create new HTTPS listener —</option>${listenerOptions}</select></label>
-             <label class="field">SNI hostname<input name="sniDomain" id="bind-sni" class="mono" placeholder="${escapeHTML((cert.domains && cert.domains[0]) || 'app.example.com')}"></label>
-             <details class="bind-new"><summary>Create a new HTTPS listener…</summary>
-               <div class="field-row"><label class="field">Port<input name="newPort" type="number" min="1" max="65535" value="443"></label>
-               <label class="field">Name<input name="newName" placeholder="https-443"></label></div>
-               <label class="checkbox-field"><input type="checkbox" name="newSni" checked><span>SNI mode <span class="field-hint">One certificate per hostname</span></span></label>
-               <p class="field-hint">Turn SNI off to use this certificate as the listener default.</p>
-             </details>`
-    }
+    <p class="security-note">This removes WeCert management and local certificate state. It does not detach cloud listeners or revoke the certificate. ${cert.bindings?.count || 0} bindings are reported; verify their impact before continuing.</p>
+    <label class="field">Type the certificate name to confirm<input name="confirmation" required autocomplete="off"></label>
     <p class="form-error" role="alert"></p>
-    <div class="modal-actions"><button type="button" class="small-btn">Cancel</button><button class="primary">${
-      deletion ? 'Delete' : unbind ? 'Detach' : 'Confirm binding'
-    }</button></div></form>`;
+    <div class="modal-actions"><button type="button" class="small-btn">Cancel</button><button class="primary">Delete</button></div></form>`;
   modal.classList.add('open');
   const form = modal.querySelector('form');
   const cancel = form.querySelector('button[type="button"]');
   cancel.onclick = () => { modal.classList.remove('open'); $('#certificate-search').focus(); };
   form.querySelector('input, select')?.focus();
-
-  const lbSel = form.querySelector('#bind-lb');
-  const lisSel = form.querySelector('#bind-listener');
-  if (lbSel && lisSel) {
-    const refreshListeners = () => {
-      const b = clbs.find((x) => x.id === lbSel.value);
-      lisSel.innerHTML = `<option value="">— create new HTTPS listener —</option>` + (b?.listeners || []).map((l) =>
-        `<option value="${escapeHTML(l.id)}">${escapeHTML(l.id)} · ${escapeHTML(l.proto)}/${escapeHTML(l.port || '?')}${l.sni ? ' · ' + escapeHTML(l.sni) : ''}</option>`
-      ).join('');
-      if (lisSel.options.length > 1) lisSel.selectedIndex = 1;
-    };
-    lbSel.onchange = () => { refreshListeners(); syncNewListener(); };
-    refreshListeners();
-  }
-
-  const syncNewListener = () => {
-    const section = form.querySelector('.bind-new');
-    if (section) { section.hidden = Boolean(lisSel?.value); section.open = !lisSel?.value; }
-  };
-  if (lisSel) lisSel.addEventListener('change', syncNewListener);
-  syncNewListener();
 
   form.onsubmit = async event => {
     event.preventDefault();
@@ -1776,36 +1695,13 @@ function openCertificateAction(name, action) {
     if (button.disabled) return;
     const data = Object.fromEntries(new FormData(form));
     const error = form.querySelector('.form-error');
-    if (deletion && data.confirmation !== name) { error.textContent = 'Certificate name does not match.'; return; }
+    if (data.confirmation !== name) { error.textContent = 'Certificate name does not match.'; return; }
     button.disabled = true; cancel.disabled = true; error.textContent = '';
-    recordOperation(name, deletion ? 'Deletion requested' : unbind ? 'Unbind requested' : 'Binding requested');
+    recordOperation(name, 'Deletion requested');
     try {
-      if (deletion) {
-        await request('DELETE', `/admin/certificates/${encodeURIComponent(name)}`, undefined, true);
-        recordOperation(name, 'Deletion completed');
-        toast('Certificate management record deleted; cloud resources were not removed.');
-      } else if (unbind) {
-        await request('POST', `/admin/certificates/${encodeURIComponent(name)}/unbind`, {}, true);
-        recordOperation(name, 'Unbind requested');
-        toast('Unbind recorded; detach cloud listeners in the cloud console if needed.');
-      } else {
-        const selectedLB = form.querySelector('#bind-lb option:checked');
-        const body = {
-          loadBalancerId: (data.loadBalancerId || '').trim(),
-          region: (selectedLB?.dataset.region || data.region || 'ap-guangzhou').trim(),
-          sniDomain: (data.sniDomain || '').trim()
-        };
-        if (!body.loadBalancerId) throw new Error('Enter a load balancer ID.');
-        if (data.listenerId) body.listenerId = data.listenerId;
-        else {
-          const port = parseInt(data.newPort || '443', 10);
-          if (!(port >= 1 && port <= 65535)) throw new Error('Port must be 1-65535');
-          body.createListener = { port, name: (data.newName || '').trim(), sni: data.newSni !== undefined };
-        }
-        await request('POST', `/admin/certificates/${encodeURIComponent(name)}/bind`, body, true);
-        recordOperation(name, 'Cloud binding API completed; inventory refresh required');
-        toast('Binding request completed');
-      }
+      await request('DELETE', `/admin/certificates/${encodeURIComponent(name)}`, undefined, true);
+      recordOperation(name, 'Deletion completed');
+      toast('Certificate management record deleted; cloud resources were not removed.');
       modal.classList.remove('open');
       try { await loadLive(); } catch { /* Persistent sync warning explains stale data. */ }
     } catch (failure) { error.textContent = failure.message; recordOperation(name, `Failed: ${failure.message}`); }
@@ -1989,7 +1885,7 @@ $('#disconnect-backend').onclick = async () => {
     pendingRequests.forEach(controller => controller.abort());
     clearLegacyTokens();
     state.deployment = null; state.deploymentError = '';
-    state.base = ''; state.lastSynced = null; state.clbs = []; state.syncError = ''; state.syncing = false;
+    state.base = ''; state.lastSynced = null; state.syncError = ''; state.syncing = false;
     setSession({read: false, admin: false});
     setInventory([], [], false);
     $('#backend-token').value = ''; $('#backend-admin-token').value = '';
@@ -2230,8 +2126,10 @@ function rowMenuActions(cert) {
   // reconcile the certificate is what issues it, and what renews it.
   if (cert.status === 'not_issued') actions.push(['issue', 'Issue now']);
   if (cert.status === 'expired' || (cert.daysLeft != null && cert.daysLeft <= 30)) actions.push(['issue', 'Request renewal']);
-  if (state.canAdmin && state.deployment?.target === 'tencent' && (cert.deploy?.target || DEFAULT_TARGET) === 'tencent') actions.push(['bind', 'Bind CLB listener']);
-  if (state.canAdmin && state.deployment?.target === 'tencent' && clbBindingCount(cert) > 0) actions.push(['unbind', 'Detach CLB bindings']);
+  // Attaching and detaching a CLB listener are actions in the Tencent Cloud console. This page
+  // manages what Let's Encrypt issued and reports where it ended up bound; it does not change the
+  // listener, so it does not offer to. The row and the detail panel show the binding state without
+  // a control that would have to reimplement the cloud console's own rules.
   if (state.canAdmin) actions.push(['delete', 'Delete certificate']);
   return actions;
 }
@@ -2281,8 +2179,9 @@ async function runRowAction(action, name) {
     } catch (error) { recordOperation(name, `Failed: ${error.message}`); toast(error.message); }
     return;
   }
-  // bind / unbind / delete already have a confirmation modal of their own.
-  openCertificateAction(name, action);
+  // delete has a confirmation modal of its own. Binding and detaching a listener do not exist
+  // here: they are Tencent Cloud console operations.
+  if (action === 'delete') openCertificateDeletion(name);
 }
 
 function copyText(value) {
