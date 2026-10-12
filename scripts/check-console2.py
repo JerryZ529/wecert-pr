@@ -612,7 +612,7 @@ class Console2Regression(unittest.TestCase):
         self.page.fill('#new-uin-secret-key', 'fake-key')
         self.page.route('**/admin/accounts', lambda route: route.fulfill(status=400, content_type='application/json', body='{"error":"account access denied"}'))
         self.page.click('#save-uin')
-        self.page.wait_for_timeout(100)
+        self.page.wait_for_function("document.querySelector('#account-error').textContent.includes('account access denied')")
         self.assertIn('account access denied', self.text('#account-error'))
         self.assertFalse(any(e.startswith("pageerror:") for e in self.errors), self.errors)
 
