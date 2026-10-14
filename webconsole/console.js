@@ -934,6 +934,11 @@ $('#close-connect').onclick = closeDrawer;
 $('#cancel-uin').onclick = closeDrawer;
 $('#drawer-scrim').onclick = closeDrawer;
 $('#detail-scrim').onclick = closeDetail;
+// The drawer's own close control, delegated rather than bound per render: renderDetail rebuilds the
+// whole header on every inventory refresh, so an onclick set on the button would be dropped with it.
+$('#certificate-detail').addEventListener('click', (event) => {
+  if (event.target.closest('[data-close-detail]')) closeDetail();
+});
 $('#new-uin-cred').onchange = (event) => $('#credential-fields').classList.toggle('is-hidden', event.target.value !== 'static');
 document.querySelectorAll('[data-close-modal]').forEach((button) => button.onclick = () => $('#certificate-modal').classList.remove('open'));
 document.querySelectorAll('[data-close-backend]').forEach((button) => button.onclick = () => $('#backend-modal').classList.remove('open'));

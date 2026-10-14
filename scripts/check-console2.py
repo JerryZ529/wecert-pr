@@ -176,6 +176,15 @@ class Console2Regression(unittest.TestCase):
         return [self.text(s) for s in
                 ("#metric-total", "#metric-attention", "#metric-expiring", "#metric-bindings")]
 
+    def close_position(self, modal):
+        """Where the header's close control sits across the header, 0 (left) to 1 (right)."""
+        return self.page.evaluate("""(sel) => {
+            const head = document.querySelector(sel + ' .modal-head');
+            const button = head.querySelector('.icon-close');
+            const hb = head.getBoundingClientRect(), bb = button.getBoundingClientRect();
+            return (bb.left + bb.width / 2 - hb.left) / hb.width;
+        }""", modal)
+
     # -- tests -------------------------------------------------------------
     def test_disconnected_state_says_so_and_shows_nothing(self):
         # No session and no token: the page must not invent an inventory.
@@ -290,6 +299,35 @@ class Console2Regression(unittest.TestCase):
         self.page.keyboard.press("Escape")
         self.page.wait_for_timeout(250)
         self.assertFalse(self.page.locator("#certificate-detail").evaluate("e => e.classList.contains('open')"))
+
+    def test_detail_drawer_close_control_closes_it(self):
+        # The × in the drawer header did nothing: only Escape and the scrim were wired, so the one
+        # control the panel shows was the one that was dead.
+        self.load(tokens=(READONLY, ""))
+        self.page.click('[data-action="view"][data-name="api-example"]')
+        self.page.wait_for_timeout(250)
+        close = self.page.locator("#certificate-detail .detail-head [data-close-detail]")
+        self.assertEqual(close.count(), 1, "the drawer header carries a close control")
+        close.click()
+        self.page.wait_for_timeout(250)
+        self.assertFalse(self.page.locator("#certificate-detail").evaluate("e => e.classList.contains('open')"),
+                         "clicking the header's close control closes the drawer")
+
+    def test_modal_close_controls_sit_at_the_far_right_of_the_header(self):
+        # The close control belongs on the right edge of the header, not next to the title, in every
+        # dialog: the create dialog and the renew panel are the two a user opens most.
+        self.load()
+        self.page.click('#new-certificate')
+        self.page.wait_for_timeout(200)
+        self.assertGreater(self.close_position('#certificate-modal'), 0.8,
+                           'the create dialog keeps its close control at the right edge')
+        self.page.keyboard.press('Escape')
+        self.page.wait_for_timeout(150)
+        self.page.click('[data-menu="shop-example"]')
+        self.page.click('[data-row-action="renew"]')
+        self.page.wait_for_selector('#renew-modal .modal-head .icon-close')
+        self.assertGreater(self.close_position('#renew-modal'), 0.8,
+                           'the renew panel keeps its close control at the right edge')
 
     def test_row_menu_offers_actions_and_delete_asks_for_the_name(self):
         self.load(tokens=(READONLY, ADMIN))

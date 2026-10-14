@@ -61,6 +61,10 @@ th:nth-child(6) { width: 8%; }
 .modal.open { display: grid; }
 .modal-card { width: min(560px, calc(100% - 32px)); padding: 24px; border-radius: 12px; background: var(--card); }
 .modal-head, .modal-actions { display: flex; align-items: center; }
+/* The close control belongs at the far right of the header, not next to the title: the heads that
+   carry a spacer already push it there, and the ones that do not (create, renew) are laid out the
+   same way instead of each carrying an empty element for it. */
+.modal-head { justify-content: space-between; }
 .modal-actions { justify-content: flex-end; gap: 10px; margin-top: 24px; }
 .toast { position: fixed; z-index: 8; right: 24px; bottom: 24px; padding: 11px 14px; border-radius: 8px; color: #fff; opacity: 0; pointer-events: none; transform: translateY(12px); transition: opacity .18s, transform .18s; }
 .toast.show { opacity: 1; transform: none; }
